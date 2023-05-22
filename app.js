@@ -1,30 +1,36 @@
 const express = require("express");
-const http = require("http");
 const path = require("path");
-const fileUpload = require("express-fileupload")
-const {routesInit} = require("./routes/configRoutes")
-require("./db/mongoConnect");
+const http = require("http");
+const cors = require("cors");
+// חובה בשביל לעלות קבצים
+const fileUpload = require("express-fileupload");
 
-const app = express();
+const {routesInit} = require("./routes/configRoutes");
+require("./db/mongoConnect")
 
-// מאפשר לשגר קבצים מצד לקוח לצד שרת
-// מגביל את הקבצים לגודל 5 מב,  ושיצרו
-// קובץ עם כתובת זמנית על השרת
+const app = express(); 
+// מאפשר גם לדומיין שלא קשור לשרת לבצע בקשה 
+app.use(cors());
 app.use(fileUpload({
-  limits:{fileSize:"5mb"},
-  useTempFiles:true
+  useTempFiles:true,
+  limits: {fileSize: 1024 * 1024 * 5}
 }))
-// מאפשר לשלוח באדי דרך הצד לקוח
-app.use(express.json());
+// מגדיר לשרת שהוא יכול לקבל מידע מסוג ג'ייסון בבאדי בבקשות שהם לא גט
+// {limit:"5mb"} -> לא ניתן לשלוח קבצים דרך באדי בלי לעדכן 
+app.use(express.json({limit:"5mb"}));
 
-// להגדיר תיקייה סטטית שתיהיה התיקייה בשם פאבליק
+// דואג שתקיית פאבליק כל הקבצים בה יהיו חשופים לצד לקוח
 app.use(express.static(path.join(__dirname,"public")));
 
+// פונקציה שמגדירה את כל הראוטים הזמנים באפליקציית
+// צד שרת שלנו
 routesInit(app);
 
-
+// הגדרת שרת עם יכולות אפ שמייצג את האקספרס
 const server = http.createServer(app);
-// בודק אם אנחנו על שרת אמיתי ואם כן דואג שנקבל את הפורט שהענן צריך
-// אם לא הברירת מחדל תיהיה 3003
-const port = process.env.PORT || 3003;
+
+// משתנה שיגדיר על איזה פורט אנחנו נעבוד
+// אנסה לבדוק אם אנחנו על שרת אמיתי ויאסוף את הפורט משם אם לא ואנחנו לוקאלי יעבוד על 3002
+let port = process.env.PORT || 3002;
+// הפעלת השרת והאזנה לפורט המבוקש
 server.listen(port);

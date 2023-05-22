@@ -1,123 +1,119 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const { UserModel, validateUser, validateLogin, createToken } = require("../models/userModel")
-const { auth, authAdmin } = require("../middlewares/auth")
+const { auth, authAdmin } = require("../middlewares/auth");
+
+const { validteUser, UserModel, validteLogin, createToken, validateSearchAr } = require("../models/userModel");
 const router = express.Router();
 
+// מאזין לכניסה לראוט של העמוד בית לפי מה שנקבע לראוטר
+// בקובץ הקונפיג
 router.get("/", async (req, res) => {
-  res.json({ msg: "Users endpoint 14:28" });
+  res.json({ msg: "Users work" });
 })
 
-
-
-// auth -> קורא קודם לפונקציית מיידל וואר שבודקת אם יש טוקן
-router.get("/userInfo", auth, async (req, res) => {
-  try {
-
-    const user = await UserModel.findOne({ _id: req.tokenData._id }, { password: 0 })
-    res.json(user)
-  }
-  catch (err) {
-    console.log(err);
-    res.status(502).json({ err })
-  }
+router.get("/checkToken",auth , async(req,res) => {
+  res.json(req.tokenData);
 })
 
-// authAdmin -> נותן הרשאה רק למי שהוא אדמין או סופר אדמין
-router.get("/usersList", authAdmin, async (req, res) => {
+// auth - פונקציית מידל וואר שבודקת שיש טוקן תקין למשתמש
+// ואז הפונקציה הבאה בשרשור של הראוטר שולפת את המידע של המשתמש
+router.get("/myInfo", auth, async (req, res) => {
   try {
-    const data = await UserModel.find({}, { password: 0 })
-    res.json(data)
-  }
-  catch (err) {
-    console.log(err);
-    res.status(502).json({ err })
-  }
-})
-
-router.post("/", async (req, res) => {
-  const validBody = validateUser(req.body);
-  if (validBody.error) {
-    return res.status(400).json(validBody.error.details);
-  }
-  try {
-    const user = new UserModel(req.body);
-    // הצפנה של הסיסמא
-    user.password = await bcrypt.hash(user.password, 10);
-    await user.save();
-    // שינוי תצוגת הסיסמא לצד לקוח המתכנת
-    user.password = "*****";
-    res.status(201).json(user);
-  }
-  catch (err) {
-    if (err.code == 11000) {
-      return res.status(401).json({ err: "Email already in system", code: 11000 })
-    }
-    console.log(err);
-    res.status(502).json({ err })
-  }
-})
-
-router.post("/login", async (req, res) => {
-  const validBody = validateLogin(req.body);
-  if (validBody.error) {
-    return res.status(400).json(validBody.error.details);
-  }
-  try {
-    // בודק אם המייל שנשלח בכלל קיים במסד
-    // findOne -> מוצא אחד בלבד ומחזיר אובייקט,אם לא מוצא מחזיר אנדיפיינד
-    const user = await UserModel.findOne({ email: req.body.email });
-    if (!user) {
-      return res.status(401).json({ msg: "Email not found!" });
-    }
-    // אם הסיסמא מתאימה לרשומה שמצאנו במסד שלנו כמוצפנת
-    //  bcrypt.compare -> בודק אם הסיסמא שהגיע מהצד לקוח בבאדי
-    // תואמת לסיסמא המוצפנתת בסיסמא
-    const passwordValid = await bcrypt.compare(req.body.password, user.password);
-    if (!passwordValid) {
-      return res.status(401).json({ msg: "Password worng!" });
-    }
-    const token = createToken(user._id, user.role);
-    res.json({ token , role:user.role });
-    // לשלוח טוקן
-  }
-  catch (err) {
-    console.log(err);
-    res.status(502).json({ err })
-  }
-})
-
-// אדמין יוכל להפוך משתמש לאדמין או למשתמש רגיל
-router.patch("/changeRole/:id/:role", authAdmin, async (req, res) => {
-  try {
-    const {id,role} = req.params;
-    if(role != "user" && role != "admin"){
-      return res.status(401).json({err:"You can send admin or user role"})
-    }
-    // אדמין לא יוכל לשנות את עצמו
-    if(id == req.tokenData._id){
-      return res.status(401).json({err:"you cant change your self"})
-    }
-    // RegExp -> פקודת שלילה חייבת לעבוד עם ביטוי רגולרי
-    // כדי לדאוג שלא נוכל להשפיע על סופר אדמין
-    const data = await UserModel.updateOne({_id:id,role:{$not:new RegExp("superadmin")}},{role});
+    let data = await UserModel.findOne({ _id: req.tokenData._id }, { password: 0 });
     res.json(data);
   }
   catch (err) {
-    console.log(err);
-    res.status(502).json({ err })
+    console.log(err)
+    res.status(500).json(err)
   }
 })
 
-// מעדכן מועדפים במערך של משתמש
-router.patch("/updateFavs/", auth, async(req,res) => {
-  try{
-    // בדוק שהבאדי שלך פאבס איי אר שהוא מערך
-    if(!Array.isArray(req.body.favs_ar)){
-      return res.status(400).json({msg:"You need to send favs_ar as array"});
+// ראוט שמחזיר את כל המשתמשים ורק משתמש עם טוקן אדמין
+// יוכל להגיע לכאן
+router.get("/allUsers", authAdmin, async (req, res) => {
+  let perPage = Number(req.query.perPage) || 20;
+  let page = Number(req.query.page) || 1
+  let sort = req.query.sort || "_id";
+  let reverse = req.query.reverse == "yes" ? 1 : -1;
+
+  try {
+    let data = await UserModel
+      .find({},{password:0})
+      .limit(perPage)
+      .skip((page - 1) * perPage)
+      .sort({ [sort]: reverse })
+    res.json(data);
+  }
+  catch (err) {
+    console.log(err)
+    res.status(500).json(err)
+  }
+})
+
+
+
+// הרשמה של משתמש חדש
+router.post("/", async (req, res) => {
+  let validBody = validteUser(req.body);
+  if (validBody.error) {
+    return res.status(400).json(validBody.error.details);
+  }
+  try {
+    let user = new UserModel(req.body);
+    user.password = await bcrypt.hash(user.password, 10);
+    await user.save();
+
+    user.password = "*****";
+    res.status(201).json(user)
+  }
+  catch (err) {
+    if (err.code == 11000) {
+      return res.status(401).json({ msg: "Email already in system, try log in", code: 11000 })
     }
-    const data = await UserModel.updateOne({_id:req.tokenData._id},{favs_ar:req.body.favs_ar})
+    console.log(err);
+    res.status(500).json(err);
+  }
+})
+
+// לוג אין משתמש קיים שבסופו מקבל טוקן 
+router.post("/login", async (req, res) => {
+  let validBody = validteLogin(req.body);
+  if (validBody.error) {
+    return res.status(400).json(validBody.error.details);
+  }
+  try {
+    // לבדוק אם מייל קייים בכלל במערכת
+    let user = await UserModel.findOne({ email: req.body.email })
+    if (!user) {
+      return res.status(401).json({ msg: "User or password not match , code:1" })
+    }
+    // שהסיסמא שהגיעה מהבאדי בצד לוקח תואמת לסיסמא המוצפנת במסד
+    let passordValid = await bcrypt.compare(req.body.password, user.password)
+    if (!passordValid) {
+      return res.status(401).json({ msg: "User or password not match , code:2" })
+    }
+    let token = createToken(user._id, user.role);
+    res.json({ token: token })
+  }
+  catch (err) {
+    console.log(err);
+    res.status(500).json(err);
+  }
+})
+
+router.patch("/updateSearch",auth , async(req,res) => {
+  let validBody = validateSearchAr(req.body);
+  if (validBody.error) {
+    return res.status(400).json(validBody.error.details);
+  }
+  const search_ar = req.body.search_ar || [];
+  try{
+    if(search_ar.length == 0 || search_ar.length > 20){
+      return res.status(400).json({err:"You must send array of search_ar with min 1 cell and max 20 cells "})
+    }
+    // TODO: check if the cell string is less than 30 chars , 
+    // מקבלים מהמשתמש מערך עם כל החיפושים האחורנים שהוא ביצע
+    const data = await UserModel.updateOne({_id:req.tokenData._id},{last_search_ar:search_ar});
     res.json(data);
   }
   catch(err){
@@ -126,21 +122,44 @@ router.patch("/updateFavs/", auth, async(req,res) => {
   }
 })
 
-router.delete("/:id", authAdmin, async (req, res) => {
-  try {
-    const {id} = req.params;
-    // אדמין לא יוכל לשנות את עצמו
-    if(id == req.tokenData._id){
-      return res.status(401).json({err:"you cant delete your self"})
+// ?user_id= &role=
+// משנה תפקיד של משתמש
+router.patch("/role/", authAdmin, async(req,res) => {
+  try{
+    // ישנה את הרול של המשתמש שבקווארי של היוזר איי די
+    // לערך שנמצא בקווארי של רול
+    let user_id = req.query.user_id;
+    let role = req.query.role;
+    // לא מאפשר למשתמש עצמו לשנות את התפקיד שלו
+    // או לשנות את הסופר אדמין
+    if(user_id == req.tokenData._id || user_id == "63b13b2750267011bebf32be"){
+      return res.status(401).json({msg:"You try to change yourself or the superadmin , anyway you are stupid!"})
     }
-    // RegExp -> פקודת שלילה חייבת לעבוד עם ביטוי רגולרי
-    // כדי לדאוג שלא נוכל להשפיע על סופר אדמין
-    const data = await UserModel.deleteOne({_id:id,role:{$not:new RegExp("superadmin")}});
+    let data = await UserModel.updateOne({_id:user_id},{role})
     res.json(data);
   }
   catch (err) {
     console.log(err);
-    res.status(502).json({ err })
+    res.status(500).json(err);
+  }
+})
+
+router.delete("/:idDel", authAdmin, async(req,res) => {
+  try{
+    
+    let idDel = req.params.idDel;
+    // בודק שהאיי די שנרצה למחוק לא האיי די של המשתמש
+    // המחובר או של הסופר אדמין
+    // 63b13b2750267011bebf32be -> id of admin@walla.com (super admin)
+    if(idDel == req.tokenData._id || idDel == "63b13b2750267011bebf32be"){
+      return res.status(401).json({msg:"You try to change yourself or the superadmin , anyway you are stupid!"})
+    }
+    let data = await UserModel.deleteOne({_id:idDel});
+    res.json(data);
+  }
+  catch (err) {
+    console.log(err);
+    res.status(500).json(err);
   }
 })
 
