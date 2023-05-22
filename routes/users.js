@@ -6,7 +6,7 @@ const { auth, authAdmin } = require("../middlewares/auth")
 const router = express.Router();
 
 router.get("/", async (req, res) => {
-  res.json({ msg: "Users endpoint" });
+  res.json({ msg: "Users endpoint 14:28" });
 })
 
 
